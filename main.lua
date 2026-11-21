@@ -123,7 +123,7 @@ function FastPage:showAbout()
     local Font = require("ui/font")
     local InfoMessage = require("ui/widget/infomessage")
     local UIManager = require("ui/uimanager")
-    local version = "0.5.2"
+    local version = "0.5.3"
     local text = table.concat({
         L("极速翻页", "Instant page turn") .. " v" .. version,
         "",
@@ -167,7 +167,7 @@ function FastPage:addToMainMenu(menu_items)
                     "Requires the master switch. Also applies FAST to file manager, menus and all UI. Explicit full refreshes (manual, rotation, book open/close) are kept and clear ghosting. UI grays may fade from ghosting; a manual full refresh restores them."),
             },
             {
-                text = _("关于"),
+                text = L("关于", "About"),
                 callback = function() self:showAbout() end,
             },
         },
@@ -179,9 +179,29 @@ if not ok then
     hooks_installed = false
     logger.warn("fastpage: install failed, native refresh stays: ", tostring(err))
 end
--- 不再用 insert_menu.add("fastpage"): 那个辅助函数把插件名硬编码塞进 order
--- 表的 more_tools, 无视 menu_item 的 sorting_hint="tools"(menusorter 按 order
--- 模板排, 双重身份导致菜单项仍落在更多工具)。只靠 registerToMainMenu +
--- sorting_hint="tools" 让 menusorter 把它放进"工具"顶层 tab。
+-- 菜单归位(2026-11-21): insert_menu.add 往 more_tools 插名, 紧接着 moveToTools
+-- 把 "fastpage" 搬到 tools —— 与"更多工具"入口同层。v0.5.2 菜单消失的真因是
+-- "关于"条目用了未 require 的 gettext 全局 `_`(KOReader 全局里是数字),
+-- addToMainMenu 注册即崩、menu_items.fastpage 不存在(v0.5.3 修复)——与 order
+-- 表机制无关, 搬家逻辑一直活着。防重入不用顶层标志字段: 那会污染 MenuSorter
+-- 对 order 的 pairs 遍历("menu id not found" 警告); 搬走后 more_tools 已无此名,
+-- 天然幂等。
+local ok_im, insert_menu = pcall(require, "ui/plugin/insert_menu")
+if ok_im then insert_menu.add("fastpage") end
+local function moveToTools(order)
+    if type(order) ~= "table" or type(order.tools) ~= "table"
+        or type(order.more_tools) ~= "table" then return end
+    for i, name in ipairs(order.more_tools) do
+        if name == "fastpage" then
+            table.remove(order.more_tools, i)
+            table.insert(order.tools, "fastpage")
+            break
+        end
+    end
+end
+local ok_r, reader_order = pcall(require, "ui/elements/reader_menu_order")
+if ok_r then moveToTools(reader_order) end
+local ok_f, fm_order = pcall(require, "ui/elements/filemanager_menu_order")
+if ok_f then moveToTools(fm_order) end
 
 return FastPage
