@@ -119,20 +119,21 @@ function FastPage:init()
 end
 
 function FastPage:addToMainMenu(menu_items)
+    -- 缩短设置点击次数(2026-11-21): 主菜单项自带复选框 —— 点左侧框直接开关
+    -- (checkmark_callback), 点文字进子菜单只剩"全局"; 从"更多工具"移到"工具"
+    -- 顶层 tab。KOReader 原生 checked_func+checkmark_callback+sub_item_table
+    -- 三者可共存(touchmenu.lua: onMenuSelect 优先处理复选框区)。
     menu_items.fastpage = {
-        text = L("极速翻页（FAST 瞬时刷新）", "Instant page turn (FAST refresh)"),
-        sorting_hint = "more_tools",
+        text = L("极速翻页", "Instant page turn"),
+        sorting_hint = "tools",
+        checked_func = isEnabled,
+        checkmark_callback = function()
+            G_reader_settings:saveSetting(ENABLED_KEY, not isEnabled())
+        end,
+        help_text = L(
+            "翻页时用最快的 FAST 波形刷新：无黑闪、无动画，但残影会累积，可用菜单全刷清除。点左侧方框即可开关。",
+            "Fastest FAST waveform for page turns: no flash, no animation. Ghosting accumulates; clear with a manual full refresh. Tap the checkbox to toggle."),
         sub_item_table = {
-            {
-                text = L("启用（翻页极速）", "Enabled (page turns)"),
-                checked_func = isEnabled,
-                callback = function()
-                    G_reader_settings:saveSetting(ENABLED_KEY, not isEnabled())
-                end,
-                help_text = L(
-                    "翻页时用最快的 FAST 波形刷新：无黑闪、无动画，但残影会累积，可用菜单全刷清除。",
-                    "Uses the fastest FAST waveform for page turns: no flash, no animation. Ghosting accumulates; clear it with a manual full refresh."),
-            },
             {
                 text = L("全局（界面也极速）", "Global (all UI, not just reading)"),
                 enabled_func = isEnabled,
@@ -141,8 +142,8 @@ function FastPage:addToMainMenu(menu_items)
                     G_reader_settings:saveSetting(GLOBAL_KEY, not isGlobal())
                 end,
                 help_text = L(
-                    "需先勾选「启用」。文件管理器、菜单等所有界面刷新也走 FAST。手动全刷、旋转屏幕、开关书等显式全刷仍保留，会顺带清残影。界面图标灰阶会随残影累积而变淡，定期手动全刷恢复。",
-                    "Requires \"Enabled\". Also applies FAST to file manager, menus and all UI. Explicit full refreshes (manual, rotation, book open/close) are kept and clear ghosting. UI grays may fade from ghosting; a manual full refresh restores them."),
+                    "需先启用主开关。文件管理器、菜单等所有界面刷新也走 FAST。手动全刷、旋转屏幕、开关书等显式全刷仍保留，会顺带清残影。界面图标灰阶会随残影累积而变淡，定期手动全刷恢复。",
+                    "Requires the master switch. Also applies FAST to file manager, menus and all UI. Explicit full refreshes (manual, rotation, book open/close) are kept and clear ghosting. UI grays may fade from ghosting; a manual full refresh restores them."),
             },
         },
     }
@@ -152,8 +153,10 @@ local ok, err = pcall(installHooks)
 if not ok then
     hooks_installed = false
     logger.warn("fastpage: install failed, native refresh stays: ", tostring(err))
-else
-    pcall(function() require("ui/plugin/insert_menu").add("fastpage") end)
 end
+-- 不再用 insert_menu.add("fastpage"): 那个辅助函数把插件名硬编码塞进 order
+-- 表的 more_tools, 无视 menu_item 的 sorting_hint="tools"(menusorter 按 order
+-- 模板排, 双重身份导致菜单项仍落在更多工具)。只靠 registerToMainMenu +
+-- sorting_hint="tools" 让 menusorter 把它放进"工具"顶层 tab。
 
 return FastPage
