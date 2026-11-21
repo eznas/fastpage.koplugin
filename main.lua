@@ -4,10 +4,10 @@ fastpage.koplugin — 极速翻页（FAST 瞬时刷新）。
 把快速刷新降级为最快的 FAST 波形：无黑闪、无动画、残影累积（手动全刷
 清除）。Swipe_Animation issue #34 极速模式的独立版。
 
-作用范围：
-  翻页极速（默认）：只降级翻页周期内的 partial/ui/full——
+作用范围（启用为主开关，未启用时全部无效）：
+  翻页极速（启用+翻页）：只降级翻页周期内的 partial/ui/flash 系/full——
       ReaderView.onPageUpdate 标记、UIManager._repaint 释放；
-  全局（可选）：界面与文件管理器的所有 partial/ui 一并降级；
+  全局（启用+可选）：界面与文件管理器的所有 partial/ui/flash 系一并降级；
       显式 full（手动全刷/旋转/开关书）保留，天然定期清残影。
 
 生效方式：纯运行时包裹（磁盘零改动，不打补丁、不改系统文件）——
@@ -24,7 +24,6 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 
 local ENABLED_KEY = "fastpage_enabled"
 local GLOBAL_KEY = "fastpage_global"
-local AUTOCLEAN_KEY = "fastpage_autoclean"
 
 -- 双语文案：按界面语言取中文或英文（插件不依赖 .po 翻译）。
 local function isZhUi()
@@ -42,13 +41,9 @@ local function isEnabled()
 end
 
 -- 全局模式：界面/文件管理器的所有 partial/ui 也降级；显式 full 保留。
+-- 依赖启用主开关（菜单置灰由 enabled_func 表达）。
 local function isGlobal()
     return G_reader_settings ~= nil and G_reader_settings:isTrue(GLOBAL_KEY)
-end
-
--- 自动清残影：FAST 限定于局刷，每 N 页放行一次整页全刷（N=原生全刷频率，需≥2）。
-local function isAutoclean()
-    return G_reader_settings ~= nil and G_reader_settings:isTrue(AUTOCLEAN_KEY)
 end
 
 -- 翻页标记：onPageUpdate 置位，_repaint 结束清位。
@@ -81,34 +76,20 @@ local function installHooks()
 
     -- 2) 入队时降级：赶在 _refresh 内 partial→full 周期性提升之前，
     --    所以 full_refresh_count=1 也不会在翻页时闪屏。
-    --    翻页极速（启用+pending）：partial/ui/full 全降级；
-    --    全局模式（独立开关）：partial/ui 全降级，显式 full 保留
-    --    （旋转/手动全刷/开关书清残影）。
-    --    自动清残影（可选）：partial 改走自管计数，每 N 页放行一次整页
-    --    full（该页会闪，其余页保持无闪 FAST）；计数语义与原生一致，
-    --    置 refresh_counted 防原生计数器重复计数。
+    --    启用为主开关：未启用时一切不降级（全局仅在其上叠加）。
+    --    翻页极速（启用+pending）：partial/ui/flash 系/full 全降级；
+    --    全局模式（启用+全局）：partial/ui/flash 系全降级，显式 full
+    --    保留（旋转/手动全刷/开关书清残影）。
     if not UIManager._fastpage_orig_refresh then
         UIManager._fastpage_orig_refresh = UIManager._refresh
         UIManager._refresh = function(self, mode, region, dither)
-            if isEnabled() or isGlobal() then
-                if pending or isGlobal() then
-                    if mode == "partial" then
-                        local n = self.FULL_REFRESH_COUNT or 0
-                        if isAutoclean() and n > 1 and not self.refresh_counted then
-                            self.refresh_count = ((self.refresh_count or 0) + 1) % n
-                            self.refresh_counted = true
-                            if self.refresh_count == n - 1 then
-                                -- 周期性整页清残影：放行原生 full
-                                return UIManager._fastpage_orig_refresh(self, "full", region, dither)
-                            end
-                        end
-                        mode = "fast"
-                    elseif mode == "ui" or mode == "flashui" or mode == "flashpartial" then
-                        -- 菜单关闭（TouchMenu:onCloseWidget）排的是 flashui，一并降级
-                        mode = "fast"
-                    elseif mode == "full" and pending and isEnabled() then
-                        mode = "fast"
-                    end
+            if isEnabled() and (pending or isGlobal()) then
+                if mode == "partial" or mode == "ui"
+                    or mode == "flashui" or mode == "flashpartial" then
+                    -- 菜单关闭（TouchMenu:onCloseWidget）排的是 flashui，一并降级
+                    mode = "fast"
+                elseif mode == "full" and pending then
+                    mode = "fast"
                 end
             end
             return UIManager._fastpage_orig_refresh(self, mode, region, dither)
@@ -154,23 +135,14 @@ function FastPage:addToMainMenu(menu_items)
             },
             {
                 text = L("全局（界面也极速）", "Global (all UI, not just reading)"),
+                enabled_func = isEnabled,
                 checked_func = isGlobal,
                 callback = function()
                     G_reader_settings:saveSetting(GLOBAL_KEY, not isGlobal())
                 end,
                 help_text = L(
-                    "文件管理器、菜单等所有界面刷新也走 FAST。手动全刷、旋转屏幕、开关书等显式全刷仍保留，会顺带清残影。界面图标灰阶会随残影累积而变淡，定期手动全刷恢复。",
-                    "Also applies FAST to file manager, menus and all UI. Explicit full refreshes (manual, rotation, book open/close) are kept and clear ghosting. UI grays may fade from ghosting; a manual full refresh restores them."),
-            },
-            {
-                text = L("自动清残影（每 N 页全刷）", "Auto ghosting cleanup (full refresh every N pages)"),
-                checked_func = isAutoclean,
-                callback = function()
-                    G_reader_settings:saveSetting(AUTOCLEAN_KEY, not isAutoclean())
-                end,
-                help_text = L(
-                    "FAST 限定于局刷：每 N 页放行一次整页全刷清残影（N=设置→屏幕→刷新频率里的全刷页数，需 2 以上）。那一页会闪一次，其余保持无闪 FAST。全刷频率为 0/-1/1 时无效。",
-                    "Keeps FAST for partial refreshes only: one full refresh every N pages clears ghosting (N = full refresh rate in Settings→Screen, must be ≥2). That page flashes once; all others stay flashless FAST. No effect if the rate is 0/-1/1."),
+                    "需先勾选「启用」。文件管理器、菜单等所有界面刷新也走 FAST。手动全刷、旋转屏幕、开关书等显式全刷仍保留，会顺带清残影。界面图标灰阶会随残影累积而变淡，定期手动全刷恢复。",
+                    "Requires \"Enabled\". Also applies FAST to file manager, menus and all UI. Explicit full refreshes (manual, rotation, book open/close) are kept and clear ghosting. UI grays may fade from ghosting; a manual full refresh restores them."),
             },
         },
     }
