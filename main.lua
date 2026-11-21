@@ -118,6 +118,27 @@ function FastPage:init()
     end
 end
 
+function FastPage:showAbout()
+    -- 与 vterm 的"关于"同款: 名称版本+简介+GitHub, smallinfofont 小字号, 无图标
+    local Font = require("ui/font")
+    local InfoMessage = require("ui/widget/infomessage")
+    local UIManager = require("ui/uimanager")
+    local version = "0.5.2"
+    local text = table.concat({
+        L("极速翻页", "Instant page turn") .. " v" .. version,
+        "",
+        L("翻页/界面刷新降级为最快的 FAST 波形：无黑闪、无动画，残影会累积，手动全刷清除。",
+          "Downgrades page/UI refreshes to the fastest FAST waveform: no flash, no animation. Ghosting accumulates; clear with a manual full refresh."),
+        "",
+        "https://github.com/eznas/fastpage.koplugin",
+    }, "\n")
+    UIManager:show(InfoMessage:new{
+        text = text,
+        show_icon = false,
+        face = Font:getFace("smallinfofont"),
+    })
+end
+
 function FastPage:addToMainMenu(menu_items)
     -- 缩短设置点击次数(2026-11-21): 主菜单项自带复选框 —— 点左侧框直接开关
     -- (checkmark_callback), 点文字进子菜单只剩"全局"; 从"更多工具"移到"工具"
@@ -144,6 +165,10 @@ function FastPage:addToMainMenu(menu_items)
                 help_text = L(
                     "需先启用主开关。文件管理器、菜单等所有界面刷新也走 FAST。手动全刷、旋转屏幕、开关书等显式全刷仍保留，会顺带清残影。界面图标灰阶会随残影累积而变淡，定期手动全刷恢复。",
                     "Requires the master switch. Also applies FAST to file manager, menus and all UI. Explicit full refreshes (manual, rotation, book open/close) are kept and clear ghosting. UI grays may fade from ghosting; a manual full refresh restores them."),
+            },
+            {
+                text = _("关于"),
+                callback = function() self:showAbout() end,
             },
         },
     }
